@@ -1,0 +1,11 @@
+service smtptoxmpp
+{
+	socket_type	= stream
+	protocal	= tcp
+	port 		= smtp
+	wait		= no
+	user		= nobody
+	server		= /usr/sbin/smtptoxmpp
+	server_args	= /etc/smtptoxmpp.conf
+	disable		= yes
+}

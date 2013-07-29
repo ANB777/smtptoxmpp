@@ -1,7 +1,7 @@
 # smtptoxmpp
 A small XMPP component to relay emails as XMPP messages.
 
-smtptoxmpp must be used with Inetd or Systemd.
+smtptoxmpp must be used with Systemd, I'm working on Inetd.
 
 Be warned if an email is sent to an address for which there is no XMPP account, 
 it is dropped without error.
