@@ -26,6 +26,9 @@ smtptoxmpp takes the name of a config file as a single argument; an example foll
     inregexp = "(.*)@xmpp.localhost"
     outregexp = "$1@localhost"
 
+## Donations
+[bitcoin:1M2dJsxA2J8ayG7xqGP5Rg1KeWS3CGxxbZ]
+
 ## License
 Copyright (C) 2013 Emery Hemingway xmpp:emery@fuzzlabs.org
 
