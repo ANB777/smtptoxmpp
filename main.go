@@ -23,20 +23,16 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"github.com/3M3RY/go-systemd/systemd"
 	xmpp "github.com/3M3RY/go-xmpp"
 	"github.com/BurntSushi/toml"
-	"log"
 	"net"
 	"net/textproto"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
-
-type smtpConfig struct {
-	Hostname string `toml:"hostname"`
-	Port     int16  `toml:"port"`
-}
 
 type xmppConfig struct {
 	Domain string `toml:"domain"`
@@ -49,7 +45,6 @@ type xmppConfig struct {
 }
 
 type tomlConfig struct {
-	Smtp smtpConfig `toml:"smtp"`
 	Xmpp xmppConfig `toml:"xmpp"`
 }
 
@@ -74,18 +69,18 @@ func process(conn net.Conn) {
 	w := textproto.NewWriter(bufio.NewWriter(conn))
 	err := w.PrintfLine(twoTwentyGreeting)
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		return
 	}
 
 	r := textproto.NewReader(bufio.NewReader(conn))
 	s, err := r.ReadLine()
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		return
 	}
 
-	log.Print("\t", conn.RemoteAddr(), "\t", s)
+	fmt.Println(conn.RemoteAddr(), "\t", s)
 
 	switch s[:4] {
 	case "EHLO":
@@ -98,31 +93,31 @@ func process(conn net.Conn) {
 	case "HELO":
 		w.PrintfLine(twoFiftyGreeting)
 	default:
-		log.Print("SMTP Error: client sent this shit: ", s)
+		fmt.Println("SMTP Error: client sent this shit: ", s)
 		return
 	}
 
 	s, err = r.ReadLine()
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		return
 	}
 
 	if s[:10] != "MAIL FROM:" {
-		log.Print("SMTP Error: client sent '", s, "' instead of MAIL FROM")
+		fmt.Println("SMTP Error: client sent '", s, "' instead of MAIL FROM")
 		return
 	}
 	w.PrintfLine("250 OK")
 
 	s, err = r.ReadLine()
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		fmt.Println(err)
 		return
 	}
 	// TODO may get mail for more than one recipient
 	if s[:8] != "RCPT TO:" {
-		log.Print("SMTP Error: client sent '", s, "' instead of RCPT TO")
+		fmt.Println("SMTP Error: client sent '", s, "' instead of RCPT TO")
 	}
 
 	recipients := stripAddrs(s[8:])
@@ -134,11 +129,25 @@ func process(conn net.Conn) {
 
 	s, err = r.ReadLine()
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		return
 	}
-	if s != "DATA" {
-		log.Print("SMTP Error: expected DATA, got ", s)
+
+	for {
+		if err != nil {
+			fmt.Println("SMTP Error: ", err)
+			return
+		}
+		if s == "DATA" {
+			break
+		}
+		if len(s) > 8 && s[:8] == "RCPT TO:" {
+			recipients = append(recipients, stripAddrs(s[8:])...)
+			w.PrintfLine("250 OK")
+			s, err = r.ReadLine()
+			continue
+		}
+		fmt.Println("SMTP Error: expected DATA, got ", s)
 		return
 	}
 	w.PrintfLine("354 End data with <CR><LF>.<CR><LF>")
@@ -147,7 +156,7 @@ func process(conn net.Conn) {
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(dr)
 	if err != nil {
-		log.Print("SMTP Error: ", err)
+		fmt.Println("SMTP Error: ", err)
 		return
 	}
 
@@ -166,29 +175,26 @@ func process(conn net.Conn) {
 		err = component.SendMessage(fromAddress, recipient, subject, msg)
 		if err != nil {
 			// TODO inform the client that recieving the message has failed
-			log.Print("XMPP Error: failed to send message: ", err)
+			fmt.Println("XMPP Error: failed to send message: ", err)
 		}
 	}
 	w.PrintfLine("250 OK")
 }
 
 var (
-	hostname          = flag.String("hostname", "", "hostname to report to clients, defaults to $HOSTNAME")
+	idle              = flag.Duration("idle", time.Minute, "process idle timeout")
 	twoTwentyGreeting string
 	twoFiftyGreeting  string
 	twoFiftyReply     string
-	fromAddress   string
+	fromAddress       string
 	component         *xmpp.Component
 	config            *tomlConfig
-	smtpAddrRe *regexp.Regexp
-	xmppAddrRe string
+	smtpAddrRe        *regexp.Regexp
+	xmppAddrRe        string
 )
 
 func main() {
 	flag.Parse()
-	if *hostname == "" {
-		*hostname = os.Getenv("HOSTNAME")
-	}
 	args := flag.Args()
 	if len(args) != 1 {
 		fmt.Println("USAGE:", os.Args[0], "CONFIG_FILE")
@@ -201,54 +207,62 @@ func main() {
 		os.Exit(1)
 	}
 
-	if config.Smtp.Hostname == "" {
-		config.Smtp.Hostname, err = os.Hostname()
-		if err != nil {
-			log.Fatal("Error: could not determine hostname, ", err)
-		}
+	hostname, err := os.Hostname()
+	if err != nil {
+		fmt.Println("Error: could not determine hostname, ", err)
+		os.Exit(1)
 	}
-	
+
 	fromAddress = config.Xmpp.Name + "." + config.Xmpp.Domain
 
-	twoTwentyGreeting = "220 " + config.Smtp.Hostname + " SMTP to XMPP gateway"
-	twoFiftyGreeting = "250 " + config.Smtp.Hostname
-	twoFiftyReply = "250-" + config.Smtp.Hostname
+	twoTwentyGreeting = "220 " + hostname + " SMTP to XMPP gateway"
+	twoFiftyGreeting = "250 " + hostname
+	twoFiftyReply = "250-" + hostname
 
 	if config.Xmpp.SmtpRe != "" {
 		smtpAddrRe = regexp.MustCompile(config.Xmpp.SmtpRe)
 		xmppAddrRe = config.Xmpp.XmppRe
 	}
 
+	listeners, err := systemd.Listen()
+	if err != nil {
+		fmt.Println("SMTP Error: failed to get sockets from environment, ", err)
+		os.Exit(1)
+	}
+	smtpClients := make(chan net.Conn)
+	for _, l := range listeners {
+		go func() {
+			defer l.Close()
+			for {
+				conn, err := l.Accept()
+				if err != nil {
+					fmt.Println("SMTP Error: ", err)
+					continue
+				}
+				smtpClients <- conn
+				// 450  Requested mail action not taken: mailbox unavailable (e.g.,
+				// mailbox busy or temporarily blocked for policy reasons)
+				//conn.Close()
+			}
+		}()
+	}
+
 	component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
 	if err != nil {
 		// TODO inform the client that recieving the message has failed
-		log.Fatal("XMPP Error: Could not connect to XMPP server, ", err)
+		fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
+		os.Exit(1)
 	}
 	defer component.Close()
 
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", config.Smtp.Port))
-	if err != nil {
-		log.Fatal("SMTP Error: could not listen on port 25, ", err)
-	}
-	defer l.Close()
-
-	// childChan := make(chan child, 8)
-	// for i := 0; i < 8; i++ {
-	// 	newChild(childChan)
-	// }
-
 	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Print("SMTP Error: ", err)
-			continue
+		select {
+		case conn := <-smtpClients:
+			process(conn)
+
+		case <-time.After(*idle):
+			os.Exit(0)
 		}
-		process(conn)
-
-		// 450  Requested mail action not taken: mailbox unavailable (e.g.,
-		// mailbox busy or temporarily blocked for policy reasons)
-		//conn.Close()
-
 	}
 
 }
