@@ -1,3 +1,21 @@
+/*
+   smtptoxmpp
+   Copyright (C) 2013 Emery Hemingway xmpp:emery@fuzzlabs.org
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU Affero General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU Affero General Public License for more details.
+
+   You should have received a copy of the GNU Affero General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 package main
 
 import (
@@ -11,6 +29,7 @@ import (
 	"net"
 	"net/textproto"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -32,6 +51,8 @@ type tomlConfig struct {
 	Xmpp xmppConfig `toml:"xmpp"`
 }
 
+var subjectRe = regexp.MustCompile(`Subject: (.*)`)
+
 func isValid(recipient string) bool {
 	return true
 }
@@ -48,6 +69,12 @@ func stripAddrs(s string) (addresses []string) {
 		addresses[i] = a[:strings.Index(a, ">")]
 	}
 	return
+}
+
+// reformatMessage reformats email addresses to mail: style
+func reformatMessage(msg string) string {
+	return mailRe.ReplaceAllString(msg, "mail:$1")
+
 }
 
 func process(conn net.Conn) {
@@ -88,8 +115,6 @@ func process(conn net.Conn) {
 		log.Print("SMTP Error: client sent '", s, "' instead of MAIL FROM")
 		return
 	}
-	sender := stripAddr(s[10:])
-
 	w.PrintfLine("250 OK")
 
 	s, err = r.ReadLine()
@@ -129,10 +154,15 @@ func process(conn net.Conn) {
 		return
 	}
 
-	msg := fmt.Sprint("Originally from mail:", sender, "\n\n", buf.String())
+	msg := buf.String()
+
+	var subject string
+	if subjects := subjectRe.FindStringSubmatch(msg); len(subjects) > 1 {
+		subject = subjects[1]
+	}
 
 	for _, recipient := range recipients {
-		err = component.SendMessage("smtp.localhost", recipient, "mail:" + sender, msg)
+		err = component.SendMessage("smtp.localhost", recipient, subject, msg)
 		if err != nil {
 			// TODO inform the client that recieving the message has failed
 			log.Print("XMPP Error: failed to send message: ", err)
@@ -170,7 +200,7 @@ func main() {
 	if config.Smtp.Hostname == "" {
 		config.Smtp.Hostname, err = os.Hostname()
 		if err != nil {
-			log.Fatal("Error: could not determine hostname,", err)
+			log.Fatal("Error: could not determine hostname, ", err)
 		}
 	}
 
@@ -181,13 +211,13 @@ func main() {
 	component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
 	if err != nil {
 		// TODO inform the client that recieving the message has failed
-		log.Fatal("XMPP Error: Could not connect to XMPP server,", err)
+		log.Fatal("XMPP Error: Could not connect to XMPP server, ", err)
 	}
 	defer component.Close()
 
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", config.Smtp.Port))
 	if err != nil {
-		log.Fatal("SMTP Error: could not listen on port 25,", err)
+		log.Fatal("SMTP Error: could not listen on port 25, ", err)
 	}
 	defer l.Close()
 
