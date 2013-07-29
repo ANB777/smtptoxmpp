@@ -44,6 +44,8 @@ type xmppConfig struct {
 	Secret string `toml:"secret"`
 	Server string `toml:"server"`
 	Port   int16  `toml:"port"`
+	SmtpRe string `toml:"smtpregexp"`
+	XmppRe string `toml:"xmppregexp"`
 }
 
 type tomlConfig struct {
@@ -52,10 +54,6 @@ type tomlConfig struct {
 }
 
 var subjectRe = regexp.MustCompile(`Subject: (.*)`)
-
-func isValid(recipient string) bool {
-	return true
-}
 
 func stripAddr(s string) (address string) {
 	address = strings.Split(s, "<")[1]
@@ -69,12 +67,6 @@ func stripAddrs(s string) (addresses []string) {
 		addresses[i] = a[:strings.Index(a, ">")]
 	}
 	return
-}
-
-// reformatMessage reformats email addresses to mail: style
-func reformatMessage(msg string) string {
-	return mailRe.ReplaceAllString(msg, "mail:$1")
-
 }
 
 func process(conn net.Conn) {
@@ -97,7 +89,12 @@ func process(conn net.Conn) {
 
 	switch s[:4] {
 	case "EHLO":
-		w.PrintfLine(twoFiftyReply)
+		// I don't know what those extensions are but don't give a shit
+		w.PrintfLine(twoFiftyReply + " greets " + s[4:])
+		w.PrintfLine("250-8BITMIME ")
+		w.PrintfLine("250-SIZE ")
+		w.PrintfLine("250-DSN ")
+		w.PrintfLine("250 HELP ")
 	case "HELO":
 		w.PrintfLine(twoFiftyGreeting)
 	default:
@@ -162,7 +159,11 @@ func process(conn net.Conn) {
 	}
 
 	for _, recipient := range recipients {
-		err = component.SendMessage("smtp.localhost", recipient, subject, msg)
+		if smtpAddrRe != nil {
+			recipient = smtpAddrRe.ReplaceAllString(recipient, xmppAddrRe)
+		}
+
+		err = component.SendMessage(fromAddress, recipient, subject, msg)
 		if err != nil {
 			// TODO inform the client that recieving the message has failed
 			log.Print("XMPP Error: failed to send message: ", err)
@@ -176,8 +177,11 @@ var (
 	twoTwentyGreeting string
 	twoFiftyGreeting  string
 	twoFiftyReply     string
+	fromAddress   string
 	component         *xmpp.Component
 	config            *tomlConfig
+	smtpAddrRe *regexp.Regexp
+	xmppAddrRe string
 )
 
 func main() {
@@ -203,10 +207,17 @@ func main() {
 			log.Fatal("Error: could not determine hostname, ", err)
 		}
 	}
+	
+	fromAddress = config.Xmpp.Name + "." + config.Xmpp.Domain
 
 	twoTwentyGreeting = "220 " + config.Smtp.Hostname + " SMTP to XMPP gateway"
 	twoFiftyGreeting = "250 " + config.Smtp.Hostname
 	twoFiftyReply = "250-" + config.Smtp.Hostname
+
+	if config.Xmpp.SmtpRe != "" {
+		smtpAddrRe = regexp.MustCompile(config.Xmpp.SmtpRe)
+		xmppAddrRe = config.Xmpp.XmppRe
+	}
 
 	component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
 	if err != nil {
