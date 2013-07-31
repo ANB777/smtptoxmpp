@@ -3,7 +3,7 @@ service smtptoxmpp
 	type		= UNLISTED
 	socket_type	= stream
 	protocal	= tcp
-	port 		= smtp
+	port 		= 25
 	wait		= no
 	user		= nobody
 	server		= /usr/sbin/smtptoxmpp
