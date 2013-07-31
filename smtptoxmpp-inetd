@@ -1,5 +1,6 @@
 service smtptoxmpp
 {
+	type		= UNLISTED
 	socket_type	= stream
 	protocal	= tcp
 	port 		= smtp
@@ -7,5 +8,5 @@ service smtptoxmpp
 	user		= nobody
 	server		= /usr/sbin/smtptoxmpp
 	server_args	= /etc/smtptoxmpp.conf
-	disable		= yes
+	disable		= no
 }

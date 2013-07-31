@@ -26,6 +26,7 @@ import (
 	"github.com/3M3RY/go-systemd/systemd"
 	xmpp "github.com/3M3RY/go-xmpp"
 	"github.com/BurntSushi/toml"
+	"io"
 	"net"
 	"net/textproto"
 	"os"
@@ -48,6 +49,27 @@ type tomlConfig struct {
 	Xmpp xmppConfig `toml:"xmpp"`
 }
 
+type inetdConn struct {
+	stdin  *os.File
+	stdout *os.File
+}
+
+func (c *inetdConn) Read(p []byte) (int, error) {
+	return c.stdin.Read(p)
+}
+
+func (c *inetdConn) Write(p []byte) (int, error) {
+	return c.stdout.Write(p)
+}
+
+func (c *inetdConn) Close() (err error) {
+	err = c.stdin.Close()
+	if err != nil {
+		return nil
+	}
+	return c.stdin.Close()
+}
+
 var subjectRe = regexp.MustCompile(`Subject: (.*)`)
 
 func stripAddr(s string) (address string) {
@@ -64,7 +86,7 @@ func stripAddrs(s string) (addresses []string) {
 	return
 }
 
-func process(conn net.Conn) {
+func process(conn io.ReadWriteCloser) {
 	defer conn.Close()
 	w := textproto.NewWriter(bufio.NewWriter(conn))
 	err := w.PrintfLine(twoTwentyGreeting)
@@ -79,8 +101,6 @@ func process(conn net.Conn) {
 		fmt.Println("SMTP Error: ", err)
 		return
 	}
-
-	fmt.Println(conn.RemoteAddr(), "\t", s)
 
 	switch s[:4] {
 	case "EHLO":
@@ -224,45 +244,54 @@ func main() {
 		xmppAddrRe = config.Xmpp.XmppRe
 	}
 
-	listeners, err := systemd.Listen()
-	if err != nil {
-		fmt.Println("SMTP Error: failed to get sockets from environment, ", err)
-		os.Exit(1)
-	}
 	smtpClients := make(chan net.Conn)
-	for _, l := range listeners {
-		go func() {
-			defer l.Close()
-			for {
-				conn, err := l.Accept()
-				if err != nil {
-					fmt.Println("SMTP Error: ", err)
-					continue
-				}
-				smtpClients <- conn
-				// 450  Requested mail action not taken: mailbox unavailable (e.g.,
-				// mailbox busy or temporarily blocked for policy reasons)
-				//conn.Close()
-			}
-		}()
-	}
-
-	component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
-	if err != nil {
-		// TODO inform the client that recieving the message has failed
-		fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
-		os.Exit(1)
-	}
-	defer component.Close()
-
-	for {
-		select {
-		case conn := <-smtpClients:
-			process(conn)
-
-		case <-time.After(*idle):
-			os.Exit(0)
+	if systemd.Booted() {
+		listeners, err := systemd.Listen()
+		if err != nil {
+			fmt.Println("SMTP Error: failed to get sockets from environment,", err)
+			os.Exit(1)
 		}
+		for _, l := range listeners {
+			defer l.Close()
+			go func() {
+				for {
+					conn, err := l.Accept()
+					if err != nil {
+						fmt.Println("SMTP Error: ", err)
+						continue
+					}
+					smtpClients <- conn
+				}
+			}()
+		}
+
+		component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
+		if err != nil {
+			// TODO inform the client that recieving the message has failed
+			fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
+			os.Exit(1)
+		}
+		defer component.Close()
+		for {
+			select {
+			case conn := <-smtpClients:
+				process(conn)
+
+			case <-time.After(*idle):
+				os.Exit(0)
+			}
+		}
+	} else {
+		// Do inted stuff
+		component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
+		if err != nil {
+			// TODO inform the client that recieving the message has failed
+			fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
+			os.Exit(1)
+		}
+		defer component.Close()
+
+		process(&inetdConn{os.Stdin, os.Stdout})
 	}
 
 }
