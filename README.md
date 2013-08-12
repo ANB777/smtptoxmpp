@@ -1,9 +1,7 @@
 # smtptoxmpp
 A small XMPP component to relay emails as XMPP messages.
 
-smtptoxmpp must be used with systemd, or inetd, configuration files are included for both.
-Don't run it under under inetd while also running systemd, that would be silly and it wont
-work.
+smtptoxmpp runs as a foreground daemon or with systemd socket activation.
 
 Be warned if an email is sent to an address for which there is no XMPP account, 
 it is dropped without error.
@@ -27,10 +25,11 @@ smtptoxmpp takes the name of a config file as a single argument; an example foll
 
 ## Serving a sub-domain on the same machine as Postfix
 Add this to /etc/postfix/main.cf
-    transport_maps = hash:/etc/postfix/transport
+> transport_maps = hash:/etc/postfix/transport
 Add a line like this to /etc/postfix/transport
-    xmpp.example.com       smtp:[localhost]:5225
-Then set inetd or systemd to activate smtptoxmpp on port 5225
+> xmpp.example.com       smtp:[localhost]:5225
+Then run smtptoxmmp with the -port 5225 option or set systemd to activate smtptoxmpp 
+on port 5225.
 
 ## Donations
 [1M2dJsxA2J8ayG7xqGP5Rg1KeWS3CGxxbZ](bitcoin:1M2dJsxA2J8ayG7xqGP5Rg1KeWS3CGxxbZ)

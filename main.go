@@ -49,6 +49,7 @@ type tomlConfig struct {
 	Xmpp xmppConfig `toml:"xmpp"`
 }
 
+/*
 type inetdConn struct {
 	stdin  *os.File
 	stdout *os.File
@@ -69,6 +70,7 @@ func (c *inetdConn) Close() (err error) {
 	}
 	return c.stdin.Close()
 }
+*/
 
 var subjectRe = regexp.MustCompile(`Subject: (.*)`)
 
@@ -202,7 +204,8 @@ func process(conn io.ReadWriteCloser) {
 }
 
 var (
-	idle              = flag.Duration("idle", time.Minute, "process idle timeout")
+	idle              = flag.Duration("idle", time.Minute, "process idle timeout (systemd only)")
+	daemonPort        = flag.Uint("port", 0, "run as a persistant server on given port")
 	twoTwentyGreeting string
 	twoFiftyGreeting  string
 	twoFiftyReply     string
@@ -217,7 +220,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) != 1 {
-		fmt.Println("USAGE:", os.Args[0], "CONFIG_FILE")
+		fmt.Println("USAGE:", os.Args[0], "[-port PORT_NUMBER] CONFIG_FILE")
 		os.Exit(1)
 	}
 
@@ -244,8 +247,37 @@ func main() {
 		xmppAddrRe = config.Xmpp.XmppRe
 	}
 
+	component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
+	if err != nil {
+		// TODO inform the client that recieving the message has failed
+		fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
+		os.Exit(1)
+	}
+	defer component.Close()
 	smtpClients := make(chan net.Conn)
-	if systemd.Booted() {
+
+	if *daemonPort != 0 {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *daemonPort))
+		if err != nil {
+			fmt.Println("SMTP Error:", err)
+			os.Exit(1)
+		}
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					fmt.Println("SMTP Error: ", err)
+					continue
+				}
+				smtpClients <- conn
+			}
+		}()
+		for {
+			conn := <-smtpClients
+			process(conn)
+		}
+
+	} else if systemd.Booted() {
 		listeners, err := systemd.Listen()
 		if err != nil {
 			fmt.Println("SMTP Error: failed to get sockets from environment,", err)
@@ -265,13 +297,6 @@ func main() {
 			}()
 		}
 
-		component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
-		if err != nil {
-			// TODO inform the client that recieving the message has failed
-			fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
-			os.Exit(1)
-		}
-		defer component.Close()
 		for {
 			select {
 			case conn := <-smtpClients:
@@ -281,17 +306,9 @@ func main() {
 				os.Exit(0)
 			}
 		}
-	} else {
+	} /* else {
 		// Do inted stuff
-		component, err = xmpp.NewComponent(config.Xmpp.Domain, config.Xmpp.Name, config.Xmpp.Secret, config.Xmpp.Server, config.Xmpp.Port)
-		if err != nil {
-			// TODO inform the client that recieving the message has failed
-			fmt.Println("XMPP Error: Could not connect to XMPP server, ", err)
-			os.Exit(1)
-		}
-		defer component.Close()
 
 		process(&inetdConn{os.Stdin, os.Stdout})
-	}
-
+	} */
 }
