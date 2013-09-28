@@ -1,0 +1,3 @@
+# Port to listen on for incoming SMTP connections.
+SMTP_PORT=5225
+CONFIG_FILE="/etc/smtptoxmpp.conf"

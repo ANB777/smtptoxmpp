@@ -1,0 +1,6 @@
+#!/sbin/runscript
+command=/usr/local/bin/smtptoxmpp
+command_args="-port ${SMTP_PORT} ${CONFIG_FILE}"
+command_background=1
+pidfile="/run/smtptoxmpp.pid"
+start_stop_daemon_args="--user nobody:nobody"
