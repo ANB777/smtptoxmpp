@@ -15,13 +15,13 @@ smtptoxmpp takes the name of a config file as a single argument; an example foll
     secret = "changeme"
     server = "example.com"
     port = 5347
-    # inregexp and outregexp are optional, in this example emails are addressed to 
-    # the subdomain @xmpp.example.com. The XMPP server only serves @example.com, so 
-    # inregexp extracts what lies before the ampersat and outregexp appends the
+    # smtpregexp and xmppregexp are optional, in this example emails are addressed
+    # to the subdomain @xmpp.example.com. The XMPP server only serves @example.com,
+    # so inregexp extracts what lies before the ampersat and outregexp appends the
     # extraction with @locahost. The first pair of () corresponds to $1, the second
     # to $2, and so forth.
-    inregexp = "(.*)@xmpp.example.com"
-    outregexp = "$1@example.com"
+    smtpregexp = "(.*)@xmpp.example.com"
+    xmppregexp = "$1@example.com"
 
 ## Serving a sub-domain on the same machine as Postfix
 Add this to /etc/postfix/main.cf
