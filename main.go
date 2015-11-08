@@ -23,9 +23,9 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/3M3RY/go-systemd/systemd"
-	xmpp "github.com/3M3RY/go-xmpp"
 	"github.com/BurntSushi/toml"
+	"github.com/coreos/go-systemd/activation"
+	xmpp "github.com/ehmry/go-xmpp"
 	"io"
 	"net"
 	"net/textproto"
@@ -277,8 +277,8 @@ func main() {
 			process(conn)
 		}
 
-	} else if systemd.Booted() {
-		listeners, err := systemd.Listen()
+	} else {
+		listeners, err := activation.Listeners(true)
 		if err != nil {
 			fmt.Println("SMTP Error: failed to get sockets from environment,", err)
 			os.Exit(1)
@@ -306,9 +306,5 @@ func main() {
 				os.Exit(0)
 			}
 		}
-	} /* else {
-		// Do inted stuff
-
-		process(&inetdConn{os.Stdin, os.Stdout})
-	} */
+	}
 }
