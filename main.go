@@ -285,7 +285,7 @@ func main() {
 		}
 
 	} else {
-		listeners, err := activation.Listeners(true)
+		listeners, err := activation.Listeners()
 		if err != nil {
 			fmt.Println("SMTP Error: failed to get sockets from environment,", err)
 			os.Exit(1)
