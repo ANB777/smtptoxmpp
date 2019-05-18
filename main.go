@@ -194,6 +194,8 @@ func process(conn io.ReadWriteCloser) {
 	if msgs := msgRe.FindStringSubmatch(msg); len(msg) > 1 {
 		msgContent = msgs[1]
 	}
+	msgContentArray := []string{"From: " , fromAddress , "\n", "Subject: " , subject , "\n\n" , msgContent}
+	msgContent = strings.Join(msgContentArray, "");
 
 	for _, recipient := range recipients {
 		if smtpAddrRe != nil {
