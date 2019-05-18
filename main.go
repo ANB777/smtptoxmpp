@@ -73,6 +73,7 @@ func (c *inetdConn) Close() (err error) {
 */
 
 var subjectRe = regexp.MustCompile(`Subject: (.*)`)
+var msgRe = regexp.MustCompile(`(?ms)[\r\n][\r\n]+(.*)$`)
 
 func stripAddr(s string) (address string) {
 	address = strings.Split(s, "<")[1]
@@ -189,15 +190,21 @@ func process(conn io.ReadWriteCloser) {
 		subject = subjects[1]
 	}
 
+	var msgContent string
+	if msgs := msgRe.FindStringSubmatch(msg); len(msg) > 1 {
+		msgContent = msgs[1]
+	}
+
 	for _, recipient := range recipients {
 		if smtpAddrRe != nil {
 			recipient = smtpAddrRe.ReplaceAllString(recipient, xmppAddrRe)
 		}
 
-		err = component.SendMessage(fromAddress, recipient, subject, msg)
+		err = component.SendMessage(fromAddress, recipient, subject, msgContent)
 		if err != nil {
-			// TODO inform the client that recieving the message has failed
 			fmt.Println("XMPP Error: failed to send message: ", err)
+			w.PrintfLine("451 Requested action aborted: local error in processing") // see https://www.greenend.org.uk/rjk/tech/smtpreplies.html
+			return
 		}
 	}
 	w.PrintfLine("250 OK")
